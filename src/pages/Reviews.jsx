@@ -8,6 +8,7 @@ import {
    AlertCircle,
    MessageSquare,
 } from "lucide-react";
+import { feedbackAPI } from "../services/api";
 
 export default function Reviews() {
    const [selectedCollection, setSelectedCollection] = useState(null);
@@ -112,19 +113,6 @@ export default function Reviews() {
       return true;
    };
 
-   const simulateNetworkRequest = () => {
-      return new Promise((resolve, reject) => {
-         setTimeout(() => {
-            // 90% success rate
-            const success = Math.random() > 0.1;
-            if (success) {
-               resolve(true);
-            } else {
-               reject(new Error("Network failure"));
-            }
-         }, 1500);
-      });
-   };
 
    const handleSubmit = async () => {
       if (!validateSubmission()) {
@@ -136,38 +124,54 @@ export default function Reviews() {
       setNetworkError(false);
 
       try {
-         await simulateNetworkRequest();
-
-         // Success - store feedback
-         const newReview = {
-            id: `REV${Date.now()}`,
-            collectionId: selectedCollection?.id || "GENERAL",
-            date: new Date().toISOString().split("T")[0],
+         // Prepare feedback data according to API specification
+         const feedbackData = {
+            feedbackDate: new Date().toISOString().split("T")[0],
             rating: rating,
-            comment: comment || "No comment provided",
-            collectionType: selectedCollection?.type || "General Feedback",
-            status: "Synced",
+            comment: comment || "Great service, would recommend!",
          };
 
-         setReviewHistory([newReview, ...reviewHistory]);
+         // Call the actual API
+         const response = await feedbackAPI.publishFeedback(feedbackData);
 
-         // Mark collection as reviewed if applicable
-         if (selectedCollection) {
-            selectedCollection.hasReview = true;
+         // Check if the response indicates success
+         if (response.statusCode === "02") {
+            // Success - store feedback in local history
+            const newReview = {
+               id: response.content.feedbackId.toString(),
+               collectionId: selectedCollection?.id || "GENERAL",
+               date: response.content.feedbackDate,
+               rating: response.content.rating,
+               comment: response.content.comment,
+               collectionType: selectedCollection?.type || "General Feedback",
+               status: "Synced",
+               createdAt: response.content.createdAt,
+               isAnonymous: response.content.isAnonymous,
+            };
+
+            setReviewHistory([newReview, ...reviewHistory]);
+
+            // Mark collection as reviewed if applicable
+            if (selectedCollection) {
+               selectedCollection.hasReview = true;
+            }
+
+            setShowSuccess(true);
+            setShowReviewForm(false);
+
+            // Reset form after showing success
+            setTimeout(() => {
+               setShowSuccess(false);
+               setSelectedCollection(null);
+               setRating(0);
+               setComment("");
+            }, 3000);
+         } else {
+            // API returned an error status code
+            throw new Error(response.message || "Failed to submit feedback");
          }
-
-         setShowSuccess(true);
-         setShowReviewForm(false);
-
-         // Reset form after showing success
-         setTimeout(() => {
-            setShowSuccess(false);
-            setSelectedCollection(null);
-            setRating(0);
-            setComment("");
-         }, 3000);
       } catch (error) {
-         // Network failure - queue as pending
+         // Network failure or API error - queue as pending
          setNetworkError(true);
 
          const pendingReview = {

@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { Package, Check, X, AlertCircle, Receipt, Coins } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Package, Check, X, AlertCircle, Receipt, Coins, Loader2 } from "lucide-react";
+import coinPackageAPI from "../services/api";
 
 export default function Packages() {
    const [selectedPackage, setSelectedPackage] = useState(null);
    const [showConfirmation, setShowConfirmation] = useState(false);
-   const [paymentMethod, setPaymentMethod] = useState("credit-card");
+   const [paymentMethod, setPaymentMethod] = useState("CARD");
    const [isProcessing, setIsProcessing] = useState(false);
    const [purchaseStatus, setPurchaseStatus] = useState(null);
    const [coinBalance, setCoinBalance] = useState(150);
@@ -12,57 +13,85 @@ export default function Packages() {
    const [showReceipt, setShowReceipt] = useState(false);
    const [errorMessage, setErrorMessage] = useState("");
    const [currentSubscription, setCurrentSubscription] = useState("Gold"); // User's current package
+   const [packages, setPackages] = useState([]);
+   const [isLoading, setIsLoading] = useState(true);
+   const [fetchError, setFetchError] = useState(null);
 
-   // User information
+   // User information - In production, this should come from auth context
    const userInfo = {
+      id: 1, // This should come from logged-in user session
       name: "John Doe",
       email: "john.doe@email.com",
    };
 
-   const packages = [
-      {
-         id: "silver",
-         name: "Silver",
-         coins: 100,
-         price: 10.0,
-         color: "bg-gray-400",
-         borderColor: "border-gray-400",
-         hoverColor: "hover:bg-gray-50",
-         features: ["Basic waste collection", "Weekly pickup", "Email support"],
-      },
-      {
-         id: "gold",
-         name: "Gold",
-         coins: 250,
-         price: 23.0,
-         color: "bg-yellow-500",
-         borderColor: "border-yellow-500",
-         hoverColor: "hover:bg-yellow-50",
-         popular: true,
-         features: [
-            "Priority collection",
-            "Bi-weekly pickup",
-            "Phone support",
-            "10% bonus coins",
-         ],
-      },
-      {
-         id: "diamond",
-         name: "Diamond",
-         coins: 500,
-         price: 42.0,
-         color: "bg-blue-500",
-         borderColor: "border-blue-500",
-         hoverColor: "hover:bg-blue-50",
-         features: [
-            "Premium service",
-            "On-demand pickup",
-            "24/7 support",
-            "20% bonus coins",
-            "Priority scheduling",
-         ],
-      },
-   ];
+   // Fetch packages from API on component mount
+   useEffect(() => {
+      fetchPackages();
+   }, []);
+
+   const fetchPackages = async () => {
+      try {
+         setIsLoading(true);
+         setFetchError(null);
+         const response = await coinPackageAPI.getAllPackages();
+         
+         if (response.statusCode === "02" && response.content) {
+            // Map API response to UI format
+            const mappedPackages = response.content.map((pkg) => {
+               const packageColors = {
+                  Silver: {
+                     color: "bg-gray-400",
+                     borderColor: "border-gray-400",
+                     hoverColor: "hover:bg-gray-50",
+                  },
+                  Gold: {
+                     color: "bg-yellow-500",
+                     borderColor: "border-yellow-500",
+                     hoverColor: "hover:bg-yellow-50",
+                     popular: true,
+                  },
+                  Diamond: {
+                     color: "bg-blue-500",
+                     borderColor: "border-blue-500",
+                     hoverColor: "hover:bg-blue-50",
+                  },
+               };
+
+               const packageFeatures = {
+                  Silver: ["Basic waste collection", "Weekly pickup", "Email support"],
+                  Gold: [
+                     "Priority collection",
+                     "Bi-weekly pickup",
+                     "Phone support",
+                     "10% bonus coins",
+                  ],
+                  Diamond: [
+                     "Premium service",
+                     "On-demand pickup",
+                     "24/7 support",
+                     "20% bonus coins",
+                     "Priority scheduling",
+                  ],
+               };
+
+               return {
+                  ...pkg,
+                  ...(packageColors[pkg.name] || {}),
+                  features: packageFeatures[pkg.name] || [],
+               };
+            });
+
+            setPackages(mappedPackages);
+         } else {
+            setFetchError("Failed to load packages. Please try again.");
+         }
+      } catch (error) {
+         console.error("Error fetching packages:", error);
+         setFetchError("Unable to connect to the server. Please check your connection and try again.");
+      } finally {
+         setIsLoading(false);
+      }
+   };
 
    const handleSelectPackage = (pkg) => {
       setSelectedPackage(pkg);
@@ -74,17 +103,7 @@ export default function Packages() {
    const handleCancelPurchase = () => {
       setShowConfirmation(false);
       setSelectedPackage(null);
-      setPaymentMethod("credit-card");
-   };
-
-   const simulatePaymentAuthorization = () => {
-      return new Promise((resolve) => {
-         setTimeout(() => {
-            // 85% success rate simulation
-            const success = Math.random() > 0.15;
-            resolve(success);
-         }, 2000);
-      });
+      setPaymentMethod("CARD");
    };
 
    const handleConfirmPayment = async () => {
@@ -92,22 +111,27 @@ export default function Packages() {
       setErrorMessage("");
 
       try {
-         // Request authorization from payment system
-         const authorized = await simulatePaymentAuthorization();
+         // Call the buy package API
+         const response = await coinPackageAPI.buyPackage(
+            selectedPackage.id,
+            userInfo.id
+         );
 
-         if (authorized) {
+         if (response.statusCode === "02" && response.content) {
             // Payment approved - credit coins and issue receipt
+            const paymentData = response.content;
             const newBalance = coinBalance + selectedPackage.coins;
             setCoinBalance(newBalance);
 
             const receipt = {
-               transactionId: `TXN-${Date.now()}`,
-               date: new Date().toLocaleString(),
+               transactionId: paymentData.paymentId,
+               date: new Date(paymentData.paymentDate).toLocaleString(),
                package: selectedPackage.name,
                coins: selectedPackage.coins,
-               amount: selectedPackage.price,
-               paymentMethod: paymentMethod,
+               amount: paymentData.amount,
+               paymentMethod: paymentData.paymentMethod,
                newBalance: newBalance,
+               userId: paymentData.userId,
             };
 
             setReceiptData(receipt);
@@ -119,17 +143,18 @@ export default function Packages() {
                setShowReceipt(true);
             }, 500);
          } else {
-            // Payment declined
+            // Payment declined or failed
             setPurchaseStatus("declined");
             setErrorMessage(
-               "Payment was declined. Please try a different payment method or contact your bank."
+               response.message || "Payment was declined. Please try a different payment method or contact your bank."
             );
          }
       } catch (error) {
          // Timeout or error - no credit issued
+         console.error("Payment error:", error);
          setPurchaseStatus("error");
          setErrorMessage(
-            "Connection timeout. Please try again. No charges were made."
+            "Connection timeout or server error. Please try again. No charges were made."
          );
       } finally {
          setIsProcessing(false);
@@ -147,6 +172,39 @@ export default function Packages() {
       setReceiptData(null);
       setSelectedPackage(null);
    };
+
+   // Loading state
+   if (isLoading) {
+      return (
+         <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+            <div className="text-center">
+               <Loader2 className="animate-spin mx-auto mb-4 text-green-600" size={48} />
+               <p className="text-gray-600 text-lg">Loading coin packages...</p>
+            </div>
+         </div>
+      );
+   }
+
+   // Error state
+   if (fetchError) {
+      return (
+         <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+            <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+               <div className="text-center">
+                  <AlertCircle className="mx-auto mb-4 text-red-600" size={48} />
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">Error Loading Packages</h2>
+                  <p className="text-gray-600 mb-6">{fetchError}</p>
+                  <button
+                     onClick={fetchPackages}
+                     className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                  >
+                     Try Again
+                  </button>
+               </div>
+            </div>
+         </div>
+      );
+   }
 
    return (
       <div className="min-h-screen bg-gray-50 p-6">
@@ -340,10 +398,10 @@ export default function Packages() {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                         disabled={isProcessing}
                      >
-                        <option value="credit-card">Credit Card</option>
-                        <option value="debit-card">Debit Card</option>
-                        <option value="paypal">PayPal</option>
-                        <option value="bank-transfer">Bank Transfer</option>
+                        <option value="CARD">Credit/Debit Card</option>
+                        <option value="PAYPAL">PayPal</option>
+                        <option value="BANK_TRANSFER">Bank Transfer</option>
+                        <option value="MOBILE_PAYMENT">Mobile Payment</option>
                      </select>
                   </div>
 
