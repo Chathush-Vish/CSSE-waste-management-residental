@@ -2,25 +2,88 @@
 class ComplaintService {
   constructor() {
     this.complaints = JSON.parse(localStorage.getItem('userComplaints') || '[]');
+    this.baseURL = 'http://localhost:8080';
   }
 
-  // Create new complaint
+  // Create new complaint - integrated with REST API
   async createComplaint(complaintData) {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const complaint = {
-          ...complaintData,
-          id: Date.now().toString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          status: 'pending'
-        };
+    try {
+      // Prepare data for your API format
+      const apiData = {
+        userId: parseInt(complaintData.userId),
+        category: this.mapCategoryToApi(complaintData.category),
+        description: complaintData.description,
+        evidenceUrl: complaintData.image || null,
+        preferredContact: complaintData.preferredContact || ''
+      };
 
-        this.complaints.unshift(complaint);
-        this.saveComplaints();
-        resolve(complaint);
-      }, 500);
-    });
+      const response = await fetch(`${this.baseURL}/complaints`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authentication headers if needed
+          // 'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(apiData),
+      });
+
+      if (response.ok) {
+        const apiResponse = await response.json();
+        
+        if (apiResponse && apiResponse.statusCode === "00") {
+          // Return success response in frontend format
+          return {
+            id: apiResponse.complaintId || Date.now().toString(),
+            title: apiData.category,
+            description: apiData.description,
+            category: complaintData.category,
+            priority: complaintData.priority || 'medium',
+            status: 'OPEN',
+            userId: complaintData.userId,
+            userName: complaintData.userName,
+            image: apiData.evidenceUrl,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            preferredContact: apiData.preferredContact
+          };
+        } else {
+          throw new Error('API response error');
+        }
+      } else {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.warn('Create complaint API call failed, using localStorage fallback:', error);
+      
+      // Fallback to localStorage
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const complaint = {
+            ...complaintData,
+            id: Date.now().toString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            status: 'OPEN'
+          };
+
+          this.complaints.unshift(complaint);
+          this.saveComplaints();
+          resolve(complaint);
+        }, 500);
+      });
+    }
+  }
+
+  // Map frontend category to API category
+  mapCategoryToApi(frontendCategory) {
+    const categoryMap = {
+      'collection': 'Service Delay',
+      'payment': 'Payment Issue',
+      'service': 'Service Quality',
+      'technical': 'Technical Problem',
+      'other': 'Other Issue'
+    };
+    return categoryMap[frontendCategory] || 'Other Issue';
   }
 
   // Get complaints for a specific user
@@ -33,38 +96,216 @@ class ComplaintService {
     });
   }
 
-  // Get all complaints (for admin)
+  // Get all complaints (for admin) - integrated with REST API
   async getAllComplaints() {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        resolve([...this.complaints]);
-      }, 400);
-    });
+    try {
+      const response = await fetch(`${this.baseURL}/complaints/admin/all`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authentication headers if needed
+          // 'Authorization': `Bearer ${token}`
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const apiResponse = await response.json();
+      
+      // Handle your API response format
+      if (apiResponse && apiResponse.statusCode === "00" && apiResponse.content) {
+        // Transform API data to match frontend format
+        const transformedComplaints = apiResponse.content.map(complaint => ({
+          id: complaint.complaintId,
+          title: complaint.category, // Using category as title since title is not in API
+          description: complaint.description,
+          category: this.mapCategory(complaint.category),
+          priority: 'medium', // Default priority since not in API
+          status: this.mapStatus(complaint.status),
+          userId: complaint.userId.toString(),
+          userName: `User ${complaint.userId}`, // Default username since not in API
+          image: complaint.evidenceUrl,
+          createdAt: complaint.createdAt || new Date().toISOString(),
+          updatedAt: complaint.createdAt || new Date().toISOString(),
+          preferredContact: complaint.preferredContact
+        }));
+        
+        return transformedComplaints;
+      } else {
+        // Fallback to localStorage for development
+        return [...this.complaints];
+      }
+    } catch (error) {
+      console.warn('API call failed, using localStorage fallback:', error);
+      // Fallback to localStorage
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve([...this.complaints]);
+        }, 400);
+      });
+    }
   }
 
-  // Update complaint status (admin action)
-  async updateComplaintStatus(complaintId, status, adminResponse = '') {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const complaintIndex = this.complaints.findIndex(c => c.id === complaintId);
-        
-        if (complaintIndex === -1) {
-          reject(new Error('Complaint not found'));
-          return;
-        }
+  // Map API status to frontend status
+  mapStatus(apiStatus) {
+    const statusMap = {
+      'OPEN': 'OPEN',
+      'CLOSE': 'CLOSE'
+    };
+    return statusMap[apiStatus] || 'OPEN';
+  }
 
-        this.complaints[complaintIndex] = {
-          ...this.complaints[complaintIndex],
-          status,
+  // Map API category to frontend category
+  mapCategory(apiCategory) {
+    const categoryMap = {
+      'Service Delay': 'collection',
+      'Payment Issue': 'payment',
+      'Service Quality': 'service',
+      'Technical Problem': 'technical'
+    };
+    return categoryMap[apiCategory] || 'other';
+  }
+
+  // Close complaint using specific close API endpoint
+  async closeComplaint(complaintId) {
+    try {
+      const response = await fetch(`${this.baseURL}/complaints/${complaintId}/close`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authentication headers if needed
+          // 'Authorization': `Bearer ${token}`
+        },
+      });
+
+      if (response.ok) {
+        const apiResponse = await response.json();
+        
+        // Return success response
+        if (apiResponse && apiResponse.statusCode === "00") {
+          return {
+            id: complaintId,
+            status: 'CLOSE',
+            adminResponse: 'Complaint has been closed',
+            updatedAt: new Date().toISOString(),
+            resolvedAt: new Date().toISOString()
+          };
+        } else {
+          throw new Error('API response error');
+        }
+      } else {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.warn('Close API call failed, using localStorage fallback:', error);
+      
+      // Fallback to localStorage
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          const complaintIndex = this.complaints.findIndex(c => c.id === complaintId);
+          
+          if (complaintIndex === -1) {
+            reject(new Error('Complaint not found'));
+            return;
+          }
+
+          this.complaints[complaintIndex] = {
+            ...this.complaints[complaintIndex],
+            status: 'CLOSE',
+            adminResponse: 'Complaint has been closed',
+            updatedAt: new Date().toISOString(),
+            resolvedAt: new Date().toISOString()
+          };
+
+          this.saveComplaints();
+          resolve(this.complaints[complaintIndex]);
+        }, 600);
+      });
+    }
+  }
+
+  // Update complaint status (admin action) - integrated with REST API
+  async updateComplaintStatus(complaintId, status, adminResponse = '') {
+    // If status is 'CLOSE', use the specific close API endpoint
+    if (status === 'CLOSE') {
+      return this.closeComplaint(complaintId);
+    }
+
+    try {
+      // Convert frontend status to API status
+      const apiStatus = this.mapStatusToApi(status);
+      
+      // Try API call first
+      const response = await fetch(`${this.baseURL}/complaints/admin/${complaintId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authentication headers if needed
+          // 'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          status: apiStatus,
           adminResponse,
           updatedAt: new Date().toISOString(),
-          resolvedAt: status === 'resolved' ? new Date().toISOString() : null
-        };
+          resolvedAt: (status === 'resolved' || status === 'closed') ? new Date().toISOString() : null
+        }),
+      });
 
-        this.saveComplaints();
-        resolve(this.complaints[complaintIndex]);
-      }, 600);
-    });
+      if (response.ok) {
+        const apiResponse = await response.json();
+        
+        // Return transformed data to match frontend format
+        if (apiResponse && apiResponse.statusCode === "00") {
+          return {
+            id: complaintId,
+            status,
+            adminResponse,
+            updatedAt: new Date().toISOString(),
+            resolvedAt: (status === 'resolved' || status === 'closed') ? new Date().toISOString() : null
+          };
+        } else {
+          throw new Error('API response error');
+        }
+      } else {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.warn('API call failed, using localStorage fallback:', error);
+      
+      // Fallback to localStorage
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          const complaintIndex = this.complaints.findIndex(c => c.id === complaintId);
+          
+          if (complaintIndex === -1) {
+            reject(new Error('Complaint not found'));
+            return;
+          }
+
+          this.complaints[complaintIndex] = {
+            ...this.complaints[complaintIndex],
+            status,
+            adminResponse,
+            updatedAt: new Date().toISOString(),
+            resolvedAt: (status === 'resolved' || status === 'closed') ? new Date().toISOString() : null
+          };
+
+          this.saveComplaints();
+          resolve(this.complaints[complaintIndex]);
+        }, 600);
+      });
+    }
+  }
+
+  // Map frontend status to API status
+  mapStatusToApi(frontendStatus) {
+    const statusMap = {
+      'OPEN': 'OPEN',
+      'CLOSE': 'CLOSE'
+    };
+    return statusMap[frontendStatus] || 'OPEN';
   }
 
   // Get complaint by ID

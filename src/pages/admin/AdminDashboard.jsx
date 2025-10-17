@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Users, AlertTriangle, DollarSign, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import { disputeService } from '../../services/disputeService';
 import { complaintService } from '../../services/complaintService';
+import ApiStatus from '../../components/ApiStatus';
+import ApiTestPanel from '../../components/ApiTestPanel';
 
 const AdminDashboard = () => {
   const [disputes, setDisputes] = useState([]);
@@ -61,17 +63,67 @@ const AdminDashboard = () => {
   const handleComplaintAction = async (complaintId, action, response = '') => {
     setLoading(true);
     try {
-      await complaintService.updateComplaintStatus(complaintId, action, response);
+      const updatedComplaint = await complaintService.updateComplaintStatus(complaintId, action, response);
       
+      // Update the complaint in the local state
       setComplaints(complaints.map(complaint => 
         complaint.id === complaintId 
-          ? { ...complaint, status: action, adminResponse: response, updatedAt: new Date().toISOString() }
+          ? { 
+              ...complaint, 
+              status: updatedComplaint.status || action, 
+              adminResponse: updatedComplaint.adminResponse || response, 
+              updatedAt: updatedComplaint.updatedAt || new Date().toISOString(),
+              resolvedAt: updatedComplaint.resolvedAt
+            }
           : complaint
       ));
+
+      // Show success message
+      console.log(`Complaint ${complaintId} status updated to: ${action}`);
+      
     } catch (error) {
       console.error('Failed to update complaint:', error);
+      // You could add a toast notification here for better UX
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCloseComplaint = async (complaintId) => {
+    setLoading(true);
+    try {
+      const updatedComplaint = await complaintService.closeComplaint(complaintId);
+      
+      // Update the complaint in the local state
+      setComplaints(complaints.map(complaint => 
+        complaint.id === complaintId 
+          ? { 
+              ...complaint, 
+              status: 'CLOSE', 
+              adminResponse: 'Complaint has been closed', 
+              updatedAt: updatedComplaint.updatedAt,
+              resolvedAt: updatedComplaint.resolvedAt
+            }
+          : complaint
+      ));
+
+      console.log(`Complaint ${complaintId} has been closed successfully`);
+      
+    } catch (error) {
+      console.error('Failed to close complaint:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'OPEN':
+        return <AlertTriangle className="w-5 h-5 text-green-500" />;
+      case 'CLOSE':
+        return <CheckCircle className="w-5 h-5 text-gray-500" />;
+      default:
+        return <AlertTriangle className="w-5 h-5 text-gray-500" />;
     }
   };
 
@@ -161,12 +213,8 @@ const AdminDashboard = () => {
                 .map((item, index) => (
                   <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div className="flex items-center">
-                      {item.transactionId ? (
-                        <DollarSign className="w-5 h-5 text-yellow-500 mr-3" />
-                      ) : (
-                        <AlertTriangle className="w-5 h-5 text-red-500 mr-3" />
-                      )}
-                      <div>
+                      {getStatusIcon(item.status)}
+                      <div className="ml-4">
                         <p className="font-medium text-gray-800">
                           {item.transactionId ? 'Payment Dispute' : 'Complaint'}: {item.reason || item.title}
                         </p>
@@ -209,8 +257,8 @@ const AdminDashboard = () => {
                     <p className="text-gray-600">Amount: ${dispute.amount}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    dispute.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                    dispute.status === 'approved' ? 'bg-green-100 text-green-800' :
+                    dispute.status === 'OPEN' ? 'bg-yellow-100 text-yellow-800' :
+                    dispute.status === 'CLOSE' ? 'bg-green-100 text-green-800' :
                     'bg-red-100 text-red-800'
                   }`}>
                     {dispute.status}
@@ -263,6 +311,8 @@ const AdminDashboard = () => {
       {/* Complaints Tab */}
       {activeTab === 'complaints' && (
         <div className="space-y-4">
+          <ApiStatus />
+          <ApiTestPanel />
           {complaints.length === 0 ? (
             <div className="text-center py-12">
               <AlertTriangle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -278,14 +328,17 @@ const AdminDashboard = () => {
                     </h3>
                     <p className="text-gray-600">From: {complaint.userName}</p>
                     <p className="text-gray-600">Category: {complaint.category}</p>
+                    {complaint.preferredContact && (
+                      <p className="text-gray-600">Contact: {complaint.preferredContact}</p>
+                    )}
+                    <p className="text-xs text-gray-500">ID: {complaint.id}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    complaint.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                    complaint.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                    complaint.status === 'resolved' ? 'bg-green-100 text-green-800' :
+                    complaint.status === 'OPEN' ? 'bg-green-100 text-green-800' :
+                    complaint.status === 'CLOSE' ? 'bg-gray-100 text-gray-800' :
                     'bg-red-100 text-red-800'
                   }`}>
-                    {complaint.status.replace('_', ' ')}
+                    {complaint.status.replace('_', ' ').toUpperCase()}
                   </span>
                 </div>
 
@@ -303,22 +356,15 @@ const AdminDashboard = () => {
                   </div>
                 )}
 
-                {complaint.status === 'pending' && (
-                  <div className="flex space-x-4">
+                {complaint.status === 'OPEN' && (
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => handleComplaintAction(complaint.id, 'in_progress', 'We are investigating your complaint')}
+                      onClick={() => handleCloseComplaint(complaint.id)}
                       disabled={loading}
-                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
+                      className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
                     >
-                      Mark In Progress
-                    </button>
-                    <button
-                      onClick={() => handleComplaintAction(complaint.id, 'resolved', 'Issue has been resolved')}
-                      disabled={loading}
-                      className="flex items-center px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      Mark Resolved
+                      <XCircle className="w-4 h-4 mr-2" />
+                      {loading ? 'Closing...' : 'Close Complaint'}
                     </button>
                   </div>
                 )}

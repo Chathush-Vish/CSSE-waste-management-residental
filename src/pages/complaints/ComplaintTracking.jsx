@@ -10,7 +10,8 @@ const ComplaintTracking = ({ user }) => {
     description: '',
     category: 'collection',
     priority: 'medium',
-    image: null
+    image: null,
+    preferredContact: ''
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -61,7 +62,8 @@ const ComplaintTracking = ({ user }) => {
         description: '',
         category: 'collection',
         priority: 'medium',
-        image: null
+        image: null,
+        preferredContact: ''
       });
       setShowCreateForm(false);
       setMessage({ type: 'success', text: 'Complaint submitted successfully' });
@@ -74,29 +76,21 @@ const ComplaintTracking = ({ user }) => {
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'pending':
-        return <Clock className="w-5 h-5 text-yellow-500" />;
-      case 'in_progress':
-        return <AlertTriangle className="w-5 h-5 text-blue-500" />;
-      case 'resolved':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case 'rejected':
-        return <XCircle className="w-5 h-5 text-red-500" />;
+      case 'OPEN':
+        return <AlertTriangle className="w-5 h-5 text-green-500" />;
+      case 'CLOSE':
+        return <CheckCircle className="w-5 h-5 text-gray-500" />;
       default:
-        return <Clock className="w-5 h-5 text-gray-500" />;
+        return <AlertTriangle className="w-5 h-5 text-gray-500" />;
     }
   };
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'in_progress':
-        return 'bg-blue-100 text-blue-800';
-      case 'resolved':
+      case 'OPEN':
         return 'bg-green-100 text-green-800';
-      case 'rejected':
-        return 'bg-red-100 text-red-800';
+      case 'CLOSE':
+        return 'bg-gray-100 text-gray-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -221,6 +215,19 @@ const ComplaintTracking = ({ user }) => {
                 onChange={(e) => setNewComplaint({...newComplaint, description: e.target.value})}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 placeholder="Provide detailed description of the issue"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Preferred Contact (Optional)
+              </label>
+              <input
+                type="text"
+                value={newComplaint.preferredContact}
+                onChange={(e) => setNewComplaint({...newComplaint, preferredContact: e.target.value})}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                placeholder="Phone number or email for contact"
               />
             </div>
 
